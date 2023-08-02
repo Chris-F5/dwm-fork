@@ -1774,6 +1774,12 @@ unfocus(Client *c, int setfocus)
 		return;
 	grabbuttons(c, 0);
 	XSetWindowBorder(dpy, c->win, scheme[SchemeNorm][ColBorder].pixel);
+	/*
+	 * This is useless as input focus is changed by focus right after unfocus
+	 * is called.
+	 * TODO: Check A->root->B == A->B
+	 * https://tronche.com/gui/x/xlib/events/input-focus/normal-and-grabbed.html
+	 */
 	if (setfocus) {
 		XSetInputFocus(dpy, root, RevertToPointerRoot, CurrentTime);
 		XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
