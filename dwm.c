@@ -382,6 +382,7 @@ applysizehints(Client *c, int *x, int *y, int *w, int *h, int interact)
 void
 arrange(Monitor *m)
 {
+	/*XEvent ev;*/
 	if (m)
 		showhide(m->stack);
 	else for (m = mons; m; m = m->next)
@@ -391,6 +392,10 @@ arrange(Monitor *m)
 		restack(m);
 	} else for (m = mons; m; m = m->next)
 		arrangemon(m);
+	/*
+	XSync(dpy, False);
+	while (XCheckMaskEvent(dpy, EnterWindowMask, &ev));
+	*/
 }
 
 void
@@ -832,6 +837,12 @@ focusmon(const Arg *arg)
 		return;
 	unfocus(selmon->sel, 0);
 	selmon = m;
+	/*
+	 * If this focuses root then window under pointer is focused but not
+	 * selected. This means that it is accepting input but cant be closed with
+	 * killclient.
+	 * https://tronche.com/gui/x/xlib/events/input-focus/normal-and-grabbed.html
+	 */
 	focus(NULL);
 }
 
@@ -1422,13 +1433,45 @@ sendmon(Client *c, Monitor *m)
 {
 	if (c->mon == m)
 		return;
-	unfocus(c, 1);
+	unfocus(c, 1); /* Focuses root, indirectly focousing window under pointer. */
 	detach(c);
 	detachstack(c);
 	c->mon = m;
 	c->tags = m->tagset[m->seltags]; /* assign tags of target monitor */
 	attach(c);
 	attachstack(c);
+	/*
+	 * dest monitor    src monitor
+	 * +===========+  +===========+
+	 * |  C  |  B+ |  |     A     |
+	 * |     |     |  |           |
+	 * +-----------+  +-----------+
+	 *
+	 * Window 'A' is being moved.
+	 * focus(NULL) focuses root which indirectly focuses the window 'B' under
+	 * pointer [1].
+	 * When NULL is passed to arrange, enternotify events are not suppressed.
+	 * This means that if the arrange causes a differnt window 'C' to be under
+	 * the pointer, an enternotify event will be queued for 'C'.
+	 * This event will focus 'C'.
+	 * But 'B' is not unfocused because it was not selected.
+	 * And the dest monitor is erroneously selected when 'C' was focused.
+	 *
+	 * Hypothesis: If enternotify events are suppressed after arrange, then 'C'
+	 * will not be focused?
+	 * Result: FALSE, 'C' IS focused, but it takes a second for X to realize
+	 * that the pointer is over a different window.
+	 *
+	 * Possible Solution:
+	 * If focus(NULL) does not find window to focus, focus on bar window instead
+	 * of root. This will prevent window under pointer from being indirectly
+	 * focused according to [1].
+	 * Suppress eventnotify events after arrange to prevent arrangement from
+	 * affecting selected window.
+	 *
+	 * [1]
+	 * ttps://tronche.com/gui/x/xlib/events/input-focus/normal-and-grabbed.html
+	 */
 	focus(NULL);
 	arrange(NULL);
 }
